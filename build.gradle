@@ -1,0 +1,9 @@
+allprojects {
+
+    group = 'org.example.alvin'
+    version = '1.0.0-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+    }
+}
