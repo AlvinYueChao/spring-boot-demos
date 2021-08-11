@@ -12,6 +12,7 @@ import org.springframework.util.StringUtils;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Pipeline;
+import redis.clients.jedis.Response;
 
 @Component
 public class RedisBloomFilter {
@@ -96,6 +97,20 @@ public class RedisBloomFilter {
       }
     }
     return result;
+  }
+
+  public void cleanup(String key) {
+    try (Jedis jedis = jedisPool.getResource()) {
+      try (Pipeline pipeline = jedis.pipelined()) {
+        Response<Boolean> exists = pipeline.exists(key);
+        if (exists.get()) {
+          pipeline.del(key);
+        }
+        pipeline.syncAndReturnAll();
+      } catch (Exception e) {
+        LOGGER.error("删除键发生异常", e);
+      }
+    }
   }
 
   @Override

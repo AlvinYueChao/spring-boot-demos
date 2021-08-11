@@ -21,16 +21,19 @@ public class RedisBloomFilterTest {
   void testInsert() {
     redisBloomFilter.init(3000, 0.03);
     LOGGER.info("{}", redisBloomFilter);
-    redisBloomFilter.insert("topic_read:8839540:20210812", "76930242", DSY_SEC);
-    redisBloomFilter.insert("topic_read:8839540:20210812", "76930243", DSY_SEC);
-    redisBloomFilter.insert("topic_read:8839540:20210812", "76930244", DSY_SEC);
-    redisBloomFilter.insert("topic_read:8839540:20210812", "76930245", DSY_SEC);
-    redisBloomFilter.insert("topic_read:8839540:20210812", "76930246", DSY_SEC);
+    String key = "topic_read:8839540:20210812";
+    redisBloomFilter.insert(key, "76930242", DSY_SEC);
+    redisBloomFilter.insert(key, "76930243", DSY_SEC);
+    redisBloomFilter.insert(key, "76930244", DSY_SEC);
+    redisBloomFilter.insert(key, "76930245", DSY_SEC);
+    redisBloomFilter.insert(key, "76930246", DSY_SEC);
 
-    Assertions.assertTrue(redisBloomFilter.mayExist("topic_read:8839540:20210812", "76930242"));
-    Assertions.assertTrue(redisBloomFilter.mayExist("topic_read:8839540:20210812", "76930243"));
-    Assertions.assertTrue(redisBloomFilter.mayExist("topic_read:8839540:20210812", "76930244"));
-    Assertions.assertTrue(redisBloomFilter.mayExist("topic_read:8839540:20210812", "76930245"));
-    Assertions.assertFalse(redisBloomFilter.mayExist("topic_read:8839540:20210812", "76930250"));
+    Assertions.assertTrue(redisBloomFilter.mayExist(key, "76930242"));
+    Assertions.assertTrue(redisBloomFilter.mayExist(key, "76930243"));
+    Assertions.assertTrue(redisBloomFilter.mayExist(key, "76930244"));
+    Assertions.assertTrue(redisBloomFilter.mayExist(key, "76930245"));
+    Assertions.assertFalse(redisBloomFilter.mayExist(key, "76930250"));
+
+    redisBloomFilter.cleanup(key);
   }
 }
