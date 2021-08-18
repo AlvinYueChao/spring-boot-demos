@@ -1,7 +1,9 @@
 package org.example.alvin.redis.adv;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.DelayQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
@@ -23,6 +25,7 @@ public class RedisDistLock implements Lock {
   private static final int LOCK_TIME = 5 * 1000;
   private static final String RS_DISTLOCK_NS = "tdln";
   private static final String RELEASE_LOCK_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+  private static final String DELAY_LOCK_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end";
   /**
    * 保存每个线程独有的锁ID
    */
@@ -34,6 +37,11 @@ public class RedisDistLock implements Lock {
   private Thread ownerThread;
   @Getter @Setter
   private String lockName = "lock";
+  /**
+   * 看门狗线程，负责锁续命
+   */
+  private Thread expireThread;
+  private static DelayQueue<ItemVo<LockItem>> delayDog = new DelayQueue<>();
 
   @Autowired
   private JedisPool jedisPool;
@@ -122,5 +130,36 @@ public class RedisDistLock implements Lock {
   @Override
   public Condition newCondition() {
     throw new UnsupportedOperationException("不支持等待通知操作!");
+  }
+
+  private class ExpireTask implements Runnable {
+    private final Logger logger = LogManager.getLogger(ExpireTask.class);
+
+    @Override
+    public void run() {
+      logger.info("看门狗线程已启动...");
+      while (!Thread.currentThread().isInterrupted()) {
+        try {
+          logger.info("开始监视锁的过期情况...");
+          LockItem lockItem = delayDog.take().getData();
+          logger.info("Redis上的锁 {} 准备续期...", lockItem);
+          try (Jedis jedis = jedisPool.getResource()) {
+            Long result = (Long) jedis.eval(DELAY_LOCK_LUA, Collections.singletonList(RS_DISTLOCK_NS + lockItem.getKey()),
+                Arrays.asList(lockItem.getValue(), String.valueOf(LOCK_TIME)));
+            if (result == null || result == 0) {
+              logger.info("Redis上的锁已释放，无需续期!");
+            } else {
+              delayDog.add(new ItemVo<>(LOCK_TIME, new LockItem(lockItem.getKey(), lockItem.getValue())));
+              logger.info("Redis上的锁还未释放，重新进入待续期检查");
+            }
+          } catch (Exception e) {
+            throw new RuntimeException("锁续期失败!", e);
+          }
+        } catch (InterruptedException e) {
+          logger.warn("看门狗线程被中断", e);
+          break;
+        }
+      }
+    }
   }
 }
