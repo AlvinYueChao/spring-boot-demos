@@ -7,6 +7,7 @@ import java.util.concurrent.DelayQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
+import javax.annotation.PreDestroy;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
@@ -22,7 +23,7 @@ public class RedisDistLock implements Lock {
 
   private static final Logger LOGGER = LogManager.getLogger(RedisDistLock.class);
 
-  private static final int LOCK_TIME = 5 * 1000;
+  private static final int LOCK_TIME = 1000;
   private static final String RS_DISTLOCK_NS = "tdln";
   private static final String RELEASE_LOCK_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
   private static final String DELAY_LOCK_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end";
@@ -41,7 +42,7 @@ public class RedisDistLock implements Lock {
    * 看门狗线程，负责锁续命
    */
   private Thread expireThread;
-  private static DelayQueue<ItemVo<LockItem>> delayDog = new DelayQueue<>();
+  private static final DelayQueue<ItemVo<LockItem>> DELAY_DOG = new DelayQueue<>();
 
   @Autowired
   private JedisPool jedisPool;
@@ -51,7 +52,6 @@ public class RedisDistLock implements Lock {
     while (!tryLock()) {
       try {
         Thread.sleep(100);
-        LOGGER.info("获取锁成功，执行其他业务代码...");
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         LOGGER.warn("执行业务方法被打断", e);
@@ -88,8 +88,18 @@ public class RedisDistLock implements Lock {
           if (ownerThread == null && "OK".equalsIgnoreCase(response)) {
             lockerId.set(id);
             setOwnerThread(currentThread);
+//            LOGGER.info("当前锁: {}", RS_DISTLOCK_NS + lockName);
+//            LOGGER.info("当前持有锁的线程名: {}", lockerId.get());
+            // 启动看门狗线程
+            if (expireThread == null) {
+              expireThread = new Thread(new ExpireTask(), "expireThread");
+              expireThread.start();
+            }
+            DELAY_DOG.add(new ItemVo<>(LOCK_TIME, new LockItem(lockName, id)));
+            LOGGER.info("{} 已获得锁", Thread.currentThread().getName());
             result = true;
           } else {
+            LOGGER.info("{} 无法获得锁", Thread.currentThread().getName());
             result = false;
           }
         }
@@ -112,14 +122,16 @@ public class RedisDistLock implements Lock {
       throw new RuntimeException("试图释放被别的线程持有的锁!");
     }
     try (Jedis jedis = this.jedisPool.getResource()) {
-      Integer result = (Integer) jedis.eval(RELEASE_LOCK_LUA, Collections.singletonList(RS_DISTLOCK_NS + lockName), Collections.singletonList(lockerId.get()));
-      if (result == null || result != 0) {
+      Long result = (Long) jedis.eval(RELEASE_LOCK_LUA, Collections.singletonList(RS_DISTLOCK_NS + lockName), Collections.singletonList(lockerId.get()));
+//      LOGGER.info("当前锁: {}", RS_DISTLOCK_NS + lockName);
+//      LOGGER.info("当前持有锁的线程名: {}", lockerId.get());
+      if (result == null || result != 0L) {
         LOGGER.info("Redis上的锁已经释放");
       } else {
         LOGGER.warn("Redis上的锁释放失败");
       }
     } catch (Exception e) {
-      LOGGER.warn("Redis上的锁释放失败");
+      throw new RuntimeException("释放锁失败！",e);
     } finally {
       lockerId.remove();
       setOwnerThread(null);
@@ -141,15 +153,18 @@ public class RedisDistLock implements Lock {
       while (!Thread.currentThread().isInterrupted()) {
         try {
           logger.info("开始监视锁的过期情况...");
-          LockItem lockItem = delayDog.take().getData();
+          LockItem lockItem = DELAY_DOG.take().getData();
           logger.info("Redis上的锁 {} 准备续期...", lockItem);
           try (Jedis jedis = jedisPool.getResource()) {
             Long result = (Long) jedis.eval(DELAY_LOCK_LUA, Collections.singletonList(RS_DISTLOCK_NS + lockItem.getKey()),
                 Arrays.asList(lockItem.getValue(), String.valueOf(LOCK_TIME)));
+//            logger.info("锁续命的key: {}", RS_DISTLOCK_NS + lockItem.getKey());
+//            logger.info("续命的线程名: {}, 续命时间: {}ms", lockItem.getValue(), String.valueOf(LOCK_TIME));
             if (result == null || result == 0) {
               logger.info("Redis上的锁已释放，无需续期!");
+//              break;
             } else {
-              delayDog.add(new ItemVo<>(LOCK_TIME, new LockItem(lockItem.getKey(), lockItem.getValue())));
+              DELAY_DOG.add(new ItemVo<>(LOCK_TIME, new LockItem(lockItem.getKey(), lockItem.getValue())));
               logger.info("Redis上的锁还未释放，重新进入待续期检查");
             }
           } catch (Exception e) {
@@ -160,6 +175,14 @@ public class RedisDistLock implements Lock {
           break;
         }
       }
+      logger.info("看门狗线程准备关闭...");
+    }
+  }
+
+  @PreDestroy
+  public void closeExpireThread() {
+    if (expireThread != null) {
+      expireThread.interrupt();
     }
   }
 }

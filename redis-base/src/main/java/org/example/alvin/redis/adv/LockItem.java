@@ -12,4 +12,9 @@ public class LockItem {
     this.key = key;
     this.value = value;
   }
+
+  @Override
+  public String toString() {
+    return String.format("LockItem[key=%s, value=%s]", this.key, this.value);
+  }
 }

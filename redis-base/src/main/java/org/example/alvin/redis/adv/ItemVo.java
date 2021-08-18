@@ -12,9 +12,10 @@ public class ItemVo<T> implements Delayed {
   @Getter
   private final T data;
 
-  public ItemVo(long ttlSeconds, T data) {
+  // 提前100毫秒进行续期
+  public ItemVo(long ttlMilliseconds, T data) {
     super();
-    this.expireAtTimestamp = ttlSeconds * 1000 + System.currentTimeMillis() - 100;
+    this.expireAtTimestamp = ttlMilliseconds + System.currentTimeMillis() - 100;
     this.data = data;
   }
 
