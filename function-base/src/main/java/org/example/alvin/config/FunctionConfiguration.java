@@ -27,6 +27,12 @@ public class FunctionConfiguration {
 
   @Bean
   public Function<Foo, List<String>> words() {
+    /*
+    org.springframework.cloud.function.json.JacksonMapper.doFromJson
+      if (json instanceof String) {
+        convertedValue = this.mapper.readValue((String) json, constructType);
+      }
+     */
     return value -> {
       logger.info("--- invoked word(), parameters: {}", value);
       return Arrays.asList(value.getValue().split(","));
@@ -35,6 +41,12 @@ public class FunctionConfiguration {
 
   @Bean
   public Function<Flux<Foo>, Flux<List<String>>> fluxWords() {
+    /*
+    org.springframework.cloud.function.json.JacksonMapper.doFromJson
+      if (json instanceof String) {
+        convertedValue = this.mapper.readValue((String) json, constructType);
+      }
+     */
     return request -> request.log().map(x -> {
       logger.info("-- invoked fluxWords(), parameters: {}", x);
       return Arrays.asList(x.getValue().split(","));
