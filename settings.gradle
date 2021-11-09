@@ -1,4 +1,3 @@
 rootProject.name = 'spring-boot-demos'
 include 'redis-base'
 include 'function-base'
-
