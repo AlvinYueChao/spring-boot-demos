@@ -8,6 +8,7 @@ import org.apache.logging.log4j.Logger;
 import org.example.alvin.pojo.Foo;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import reactor.core.publisher.Flux;
 
 @Configuration
 public class FunctionConfiguration {
@@ -30,5 +31,13 @@ public class FunctionConfiguration {
       logger.info("--- invoked word(), parameters: {}", value);
       return Arrays.asList(value.getValue().split(","));
     };
+  }
+
+  @Bean
+  public Function<Flux<Foo>, Flux<List<String>>> fluxWords() {
+    return request -> request.log().map(x -> {
+      logger.info("-- invoked fluxWords(), parameters: {}", x);
+      return Arrays.asList(x.getValue().split(","));
+    });
   }
 }
